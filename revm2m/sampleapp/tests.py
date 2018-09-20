@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from django.db.models import Prefetch
 from django.test import TestCase, override_settings
 
 from revm2m.sampleapp.dbcount import d
@@ -95,3 +96,65 @@ class ReverseM2MTest(TestCase):
         dbcount = d('<test-rev-m2m-3', show=True, total=True)
         self.assertLess(dbcount, 4)  # 3
 
+    @override_settings(DEBUG=True)
+    def test_rev_m2m_4(self):
+        d('>test-rev-m2m-4')
+        res = {}
+        authors = Author.objects.filter(joined__year=date.today().year)
+        entries = Entry.objects.prefetch_related('authors').filter(rating__gte=4, authors__in=authors)
+
+        for author in authors:
+            res[author] = {e for e in entries if e.authors.filter(pk=author.pk)}
+
+        self.assertEqual(len(res), len(authors))
+
+        self.assertEqual(res[self.a2], {self.entry5})
+        self.assertEqual(res[self.a3], {self.entry4})
+        dbcount = d('<test-rev-m2m-4')
+        self.assertLess(dbcount, 4)  # 198
+
+    @override_settings(DEBUG=True)
+    def test_rev_m2m_6(self):
+        d('>test-rev-m2m-6')
+        res = {}
+        authors = Author.objects.prefetch_related('entry_set').filter(joined__year=date.today().year)
+
+        for author in authors:
+            res[author] = set(author.entry_set.filter(rating__gte=4))
+
+        self.assertEqual(len(res), len(authors))
+
+        self.assertEqual(res[self.a2], {self.entry5})
+        self.assertEqual(res[self.a3], {self.entry4})
+
+        dbcount = d('<test-rev-m2m-6')
+        self.assertLess(dbcount, 4)  # 99
+
+    @override_settings(DEBUG=True)
+    def test_rev_m2m_wvo(self):
+        d('>test-rev-m2m-wvo')
+        res = {}
+        good_ratings = Prefetch(
+            'entry_set',
+            queryset=Entry.objects.filter(rating__gte=4),
+            to_attr = 'good_ratings'
+        )
+
+        authors = Author.objects.filter(
+            joined__year=date.today().year
+        ).prefetch_related(
+            good_ratings
+        )
+        res = {
+            author: set(author.good_ratings)
+            for author in authors
+        }
+        print(res)
+
+        self.assertEqual(len(res), len(authors))
+
+        self.assertEqual(res[self.a2], {self.entry5})
+        self.assertEqual(res[self.a3], {self.entry4})
+
+        dbcount = d('<test-rev-m2m-wvo')
+        self.assertLess(dbcount, 4)  # 99
